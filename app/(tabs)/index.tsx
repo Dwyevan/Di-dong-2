@@ -3,6 +3,7 @@ import { useRouter } from 'expo-router';
 import { useCallback, useEffect, useState } from 'react';
 import {
   ActivityIndicator,
+  Dimensions,
   FlatList,
   RefreshControl,
   StatusBar,
@@ -16,59 +17,62 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import RoomCard from '../../components/RoomCard';
 import { COLORS } from '../../constants/Colors';
-import { useAuth } from '../context/AuthContext'; // Lấy thông tin user đăng nhập
-import { roomService } from '../services/roomService'; // Sử dụng Service thực
+import { useFavorites } from '../../hooks/useFavorites'; // Đã tích hợp hook thực tế
+import { useAuth } from '../context/AuthContext';
+import { roomService } from '../services/roomService';
+
+const { width } = Dimensions.get('window');
 
 const CATEGORIES = [
-  { id: 'all', name: 'Tất cả', icon: 'grid-outline' },
-  { id: 'Phòng riêng', name: 'Phòng riêng', icon: 'person-outline' },
-  { id: 'Nguyên căn', name: 'Nguyên căn', icon: 'business-outline' },
-  { id: 'Ở ghép', name: 'Ở ghép', icon: 'people-outline' },
+  { id: 'all', name: 'Tất cả', icon: 'grid' },
+  { id: 'Phòng riêng', name: 'Phòng trọ', icon: 'bed' },
+  { id: 'Nguyên căn', name: 'Nhà nguyên căn', icon: 'home' },
+  { id: 'Ở ghép', name: 'Ở ghép', icon: 'people' },
 ];
 
 export default function HomePage() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const { user } = useAuth();
+  const { favorites, toggleFavorite } = useFavorites();
 
-  // --- STATE QUẢN LÝ DỮ LIỆU ---
-  const [allRooms, setAllRooms] = useState<any[]>([]);      // Gốc từ Firebase
-  const [filteredRooms, setFilteredRooms] = useState<any[]>([]); // Hiển thị sau lọc
+  const [allRooms, setAllRooms] = useState<any[]>([]);
+  const [filteredRooms, setFilteredRooms] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [search, setSearch] = useState('');
   const [activeCat, setActiveCat] = useState('all');
 
-  // --- 1. LẤY DỮ LIỆU TỪ FIREBASE ---
   const fetchRooms = async () => {
-    const result = await roomService.getAllRooms();
-    if (result.success) {
-      setAllRooms(result.data);
-      setFilteredRooms(result.data);
+    try {
+      const result = await roomService.getAllRooms();
+      if (result.success) {
+        setAllRooms(result.data);
+        setFilteredRooms(result.data);
+      }
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setLoading(false);
+      setRefreshing(false);
     }
-    setLoading(false);
-    setRefreshing(false);
   };
 
   useEffect(() => {
     fetchRooms();
   }, []);
 
-  // --- 2. LOGIC LỌC TẠI CHỖ (SEARCH & CATEGORY) ---
   useEffect(() => {
     const result = allRooms.filter(room => {
       const title = room.title?.toLowerCase() || '';
       const address = room.address?.toLowerCase() || '';
-      const matchesSearch = title.includes(search.toLowerCase()) || 
-                           address.includes(search.toLowerCase());
-      
-      const matchesCat = activeCat === 'all' || room.category === activeCat;
+      const matchesSearch = title.includes(search.toLowerCase()) || address.includes(search.toLowerCase());
+      const matchesCat = activeCat === 'all' || room.roomType === activeCat;
       return matchesSearch && matchesCat;
     });
     setFilteredRooms(result);
   }, [search, activeCat, allRooms]);
 
-  // --- 3. XỬ LÝ LÀM MỚI (PULL TO REFRESH) ---
   const onRefresh = useCallback(() => {
     setRefreshing(true);
     fetchRooms();
@@ -81,36 +85,39 @@ export default function HomePage() {
     });
   };
 
-  // --- RENDER HEADER ---
   const renderHeader = () => (
-    <View>
-      <View style={styles.header}>
+    <View style={styles.headerContent}>
+      {/* Top Header */}
+      <View style={styles.topBar}>
         <View>
-          <Text style={styles.subGreeting}>Chào mừng bạn quay lại,</Text>
+          <Text style={styles.subGreeting}>Xin chào 👋</Text>
           <Text style={styles.greeting}>{user?.fullName || 'Khách hàng'}</Text>
         </View>
-        <TouchableOpacity style={styles.iconCircle} onPress={() => router.push('/notifications')}>
-          <Ionicons name="notifications-outline" size={22} color="#333" />
+        <TouchableOpacity style={styles.notifBtn} onPress={() => router.push('/notifications')}>
+          <Ionicons name="notifications-outline" size={24} color="#1E293B" />
           <View style={styles.notifBadge} />
         </TouchableOpacity>
       </View>
 
+      {/* Search Box */}
       <View style={styles.searchSection}>
-        <View style={styles.searchContainer}>
-          <Ionicons name="search" size={20} color="#999" />
+        <View style={styles.searchInner}>
+          <Ionicons name="search-outline" size={20} color="#94A3B8" />
           <TextInput
             style={styles.searchInput}
-            placeholder="Bạn muốn ở đâu hôm nay?"
+            placeholder="Tìm kiếm khu vực, tên đường..."
+            placeholderTextColor="#94A3B8"
             value={search}
             onChangeText={setSearch}
           />
         </View>
         <TouchableOpacity style={styles.filterBtn} onPress={handleGoToListings}>
-          <Ionicons name="options-outline" size={24} color="white" />
+          <Ionicons name="options" size={22} color="white" />
         </TouchableOpacity>
       </View>
 
-      <View style={styles.catWrapper}>
+      {/* Categories */}
+      <View style={styles.catContainer}>
         <FlatList
           data={CATEGORIES}
           horizontal
@@ -119,26 +126,32 @@ export default function HomePage() {
           renderItem={({ item }) => (
             <TouchableOpacity 
               onPress={() => setActiveCat(item.id)}
-              style={[styles.catItem, activeCat === item.id && styles.catItemActive]}
+              style={[styles.catCard, activeCat === item.id && styles.catCardActive]}
             >
-              <Ionicons 
-                name={item.icon as any} 
-                size={18} 
-                color={activeCat === item.id ? 'white' : COLORS.primary} 
-              />
-              <Text style={[styles.catText, activeCat === item.id && styles.catTextActive]}>
+              <View style={[styles.catIconBox, activeCat === item.id && styles.catIconBoxActive]}>
+                <Ionicons 
+                    name={item.icon as any} 
+                    size={20} 
+                    color={activeCat === item.id ? 'white' : COLORS.primary} 
+                />
+              </View>
+              <Text style={[styles.catLabel, activeCat === item.id && styles.catLabelActive]}>
                 {item.name}
               </Text>
             </TouchableOpacity>
           )}
-          contentContainerStyle={{ paddingHorizontal: 16 }}
+          contentContainerStyle={{ paddingHorizontal: 20, gap: 12 }}
         />
       </View>
 
+      {/* Section Title */}
       <View style={styles.sectionHeader}>
-        <Text style={styles.sectionTitle}>Gợi ý phổ biến</Text>
+        <View>
+            <Text style={styles.sectionTitle}>Gợi ý cho bạn</Text>
+            <Text style={styles.sectionSub}>Phòng trống mới nhất hôm nay</Text>
+        </View>
         <TouchableOpacity onPress={handleGoToListings}>
-          <Text style={styles.seeAll}>Xem tất cả</Text>
+          <Text style={styles.seeAllText}>Xem thêm</Text>
         </TouchableOpacity>
       </View>
     </View>
@@ -149,7 +162,7 @@ export default function HomePage() {
       <StatusBar barStyle="dark-content" />
       
       {loading ? (
-        <View style={styles.loadingBox}>
+        <View style={styles.centerBox}>
           <ActivityIndicator size="large" color={COLORS.primary} />
         </View>
       ) : (
@@ -157,26 +170,25 @@ export default function HomePage() {
           data={filteredRooms}
           keyExtractor={(item) => item.id}
           refreshControl={
-            <RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={[COLORS.primary]} />
+            <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={COLORS.primary} />
           }
           renderItem={({ item }) => (
-            <View style={styles.cardPadding}>
+            <View style={styles.cardContainer}>
               <RoomCard
                 room={item}
                 onViewRoom={() => router.push(`/room-detail/${item.id}`)}
-                // Khi tích hợp Firebase đầy đủ, bạn sẽ cần hook useFavorites thực tế tại đây
-                isFavorite={false} 
-                onToggleFavorite={(id) => console.log('Toggle', id)}
+                isFavorite={favorites.includes(item.id)} 
+                onToggleFavorite={toggleFavorite}
               />
             </View>
           )}
           ListHeaderComponent={renderHeader}
-          ListFooterComponent={<View style={{ height: 100 }} />}
+          ListFooterComponent={<View style={{ height: 40 }} />}
           showsVerticalScrollIndicator={false}
           ListEmptyComponent={
-            <View style={styles.emptyBox}>
-              <Ionicons name="search-outline" size={50} color="#DDD" />
-              <Text style={styles.emptyText}>Không tìm thấy phòng nào phù hợp</Text>
+            <View style={styles.emptyContainer}>
+              <Ionicons name="search-outline" size={60} color="#E2E8F0" />
+              <Text style={styles.emptyText}>Rất tiếc, chưa có phòng nào phù hợp.</Text>
             </View>
           }
         />
@@ -186,26 +198,34 @@ export default function HomePage() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#FDFDFD' },
-  loadingBox: { flex: 1, justifyContent: 'center', alignItems: 'center' },
-  header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 20, marginTop: 15 },
-  subGreeting: { fontSize: 13, color: '#888', fontWeight: '500' },
-  greeting: { fontSize: 20, fontWeight: 'bold', color: '#1A1A1A', marginTop: 2 },
-  iconCircle: { width: 44, height: 44, borderRadius: 22, backgroundColor: 'white', justifyContent: 'center', alignItems: 'center', borderWidth: 1, borderColor: '#F0F0F0' },
-  notifBadge: { position: 'absolute', top: 12, right: 13, width: 8, height: 8, backgroundColor: '#FF5A5F', borderRadius: 4, borderWidth: 1.5, borderColor: 'white' },
-  searchSection: { flexDirection: 'row', paddingHorizontal: 20, gap: 12, marginVertical: 20 },
-  searchContainer: { flex: 1, flexDirection: 'row', alignItems: 'center', backgroundColor: '#F2F4F7', borderRadius: 16, paddingHorizontal: 15, height: 54 },
-  searchInput: { flex: 1, marginLeft: 10, fontSize: 15, fontWeight: '500' },
-  filterBtn: { backgroundColor: COLORS.primary, width: 54, height: 54, borderRadius: 16, justifyContent: 'center', alignItems: 'center' },
-  catWrapper: { marginBottom: 20 },
-  catItem: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#FFF', paddingHorizontal: 18, paddingVertical: 10, borderRadius: 25, marginRight: 10, borderWidth: 1, borderColor: '#EEE' },
-  catItemActive: { backgroundColor: COLORS.primary, borderColor: COLORS.primary },
-  catText: { fontWeight: '600', color: '#666', marginLeft: 6, fontSize: 13 },
-  catTextActive: { color: 'white' },
-  sectionHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 20, marginBottom: 15 },
-  sectionTitle: { fontSize: 18, fontWeight: 'bold', color: '#1A1A1A' },
-  seeAll: { color: COLORS.primary, fontWeight: '600', fontSize: 13 },
-  cardPadding: { paddingHorizontal: 20, marginBottom: 20 },
-  emptyBox: { alignItems: 'center', marginTop: 40 },
-  emptyText: { color: '#AAA', marginTop: 10, fontSize: 14 }
+  container: { flex: 1, backgroundColor: '#F8FAFC' },
+  headerContent: { backgroundColor: '#FFF', paddingBottom: 10, borderBottomLeftRadius: 30, borderBottomRightRadius: 30 },
+  topBar: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 20, marginTop: 10 },
+  subGreeting: { fontSize: 14, color: '#64748B', fontWeight: '500' },
+  greeting: { fontSize: 22, fontWeight: '900', color: '#1E293B', marginTop: 2 },
+  notifBtn: { width: 48, height: 48, borderRadius: 16, backgroundColor: '#F1F5F9', justifyContent: 'center', alignItems: 'center' },
+  notifBadge: { position: 'absolute', top: 14, right: 14, width: 8, height: 8, backgroundColor: '#EF4444', borderRadius: 4, borderWidth: 1.5, borderColor: '#FFF' },
+  
+  searchSection: { flexDirection: 'row', paddingHorizontal: 20, gap: 12, marginTop: 20 },
+  searchInner: { flex: 1, flexDirection: 'row', alignItems: 'center', backgroundColor: '#F1F5F9', borderRadius: 18, paddingHorizontal: 16, height: 56 },
+  searchInput: { flex: 1, marginLeft: 10, fontSize: 15, color: '#1E293B', fontWeight: '500' },
+  filterBtn: { backgroundColor: COLORS.primary, width: 56, height: 56, borderRadius: 18, justifyContent: 'center', alignItems: 'center', elevation: 4, shadowColor: COLORS.primary, shadowOpacity: 0.3, shadowRadius: 8 },
+  
+  catContainer: { marginTop: 25 },
+  catCard: { alignItems: 'center', backgroundColor: '#FFF', padding: 8, borderRadius: 20, width: 90, borderWidth: 1, borderColor: '#F1F5F9' },
+  catCardActive: { borderColor: COLORS.primary, backgroundColor: '#F0F9FF' },
+  catIconBox: { width: 44, height: 44, borderRadius: 14, backgroundColor: '#F8FAFC', justifyContent: 'center', alignItems: 'center', marginBottom: 8 },
+  catIconBoxActive: { backgroundColor: COLORS.primary },
+  catLabel: { fontSize: 11, fontWeight: '700', color: '#64748B' },
+  catLabelActive: { color: COLORS.primary },
+
+  sectionHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-end', paddingHorizontal: 20, marginTop: 30, marginBottom: 15 },
+  sectionTitle: { fontSize: 19, fontWeight: '900', color: '#1E293B' },
+  sectionSub: { fontSize: 12, color: '#94A3B8', marginTop: 2 },
+  seeAllText: { color: COLORS.primary, fontWeight: '700', fontSize: 13 },
+  
+  cardContainer: { paddingHorizontal: 20, marginBottom: 18 },
+  centerBox: { flex: 1, justifyContent: 'center', alignItems: 'center' },
+  emptyContainer: { alignItems: 'center', marginTop: 60, gap: 10 },
+  emptyText: { color: '#94A3B8', fontSize: 14, fontWeight: '500' }
 });

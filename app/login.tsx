@@ -29,18 +29,46 @@ export default function LoginPage() {
   const [name, setName] = useState('');
   const [phone, setPhone] = useState('');
 
-  // NGHIỆP VỤ: Vào xem với tư cách khách
+  // --- NGHIỆP VỤ: Quên mật khẩu ---
+  const handleForgotPassword = async () => {
+    if (!email) {
+      Alert.alert('Yêu cầu', 'Vui lòng nhập Email của bạn vào ô trống để nhận link đặt lại mật khẩu.');
+      return;
+    }
+
+    Alert.alert(
+      "Xác nhận",
+      `Gửi email hướng dẫn đặt lại mật khẩu tới: ${email}?`,
+      [
+        { text: "Hủy", style: "cancel" },
+        { 
+          text: "Gửi", 
+          onPress: async () => {
+            setLoading(true);
+            const result = await authService.forgotPassword(email);
+            setLoading(false);
+            if (result.success) {
+              Alert.alert("Thành công", "Vui lòng kiểm tra hộp thư đến (và cả thư rác) để đổi mật khẩu.");
+            } else {
+              Alert.alert("Lỗi", result.error);
+            }
+          } 
+        }
+      ]
+    );
+  };
+
+  // --- NGHIỆP VỤ: Vào xem với tư cách khách ---
   const handleGuestAccess = async () => {
     try {
-      // Đảm bảo xóa mọi session cũ trước khi vào xem
       await logout();
-      // Điều hướng thẳng vào ứng dụng
       router.replace('/(tabs)');
     } catch (error) {
       router.replace('/(tabs)');
     }
   };
 
+  // --- NGHIỆP VỤ: Đăng nhập / Đăng ký ---
   const handleAuth = async () => {
     if (!email || !password) {
       Alert.alert('Lỗi', 'Vui lòng nhập đầy đủ Email và Mật khẩu');
@@ -156,11 +184,17 @@ export default function LoginPage() {
               />
             </View>
 
+            {/* NÚT QUÊN MẬT KHẨU */}
+            {isLoginMode && (
+              <TouchableOpacity onPress={handleForgotPassword} style={styles.forgotPassBtn}>
+                <Text style={styles.forgotPassText}>Quên mật khẩu?</Text>
+              </TouchableOpacity>
+            )}
+
             <TouchableOpacity style={styles.mainActionBtn} onPress={handleAuth} disabled={loading}>
               {loading ? <ActivityIndicator color="white" /> : <Text style={styles.mainActionText}>{isLoginMode ? 'ĐĂNG NHẬP' : 'TẠO TÀI KHOẢN'}</Text>}
             </TouchableOpacity>
 
-            {/* PHẦN CHỨC NĂNG KHÁCH (GUEST MODE) */}
             <View style={styles.dividerContainer}>
               <View style={styles.dividerLine} />
               <Text style={styles.dividerText}>Hoặc</Text>
@@ -194,9 +228,10 @@ const styles = StyleSheet.create({
   inputBox: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#F8F9FA', borderRadius: 12, paddingHorizontal: 15, borderWidth: 1, borderColor: '#EEE' },
   inputIcon: { marginRight: 10 },
   input: { flex: 1, paddingVertical: 15, fontSize: 16, color: '#333' },
+  forgotPassBtn: { alignSelf: 'flex-end', marginTop: -5 },
+  forgotPassText: { color: COLORS.primary || '#4F46E5', fontSize: 14, fontWeight: '600' },
   mainActionBtn: { backgroundColor: COLORS.primary || '#4F46E5', paddingVertical: 18, borderRadius: 15, alignItems: 'center', marginTop: 10, elevation: 3, shadowColor: '#4F46E5', shadowOpacity: 0.3, shadowRadius: 8 },
   mainActionText: { color: 'white', fontSize: 16, fontWeight: 'bold' },
-  // Styles mới cho Guest Mode
   dividerContainer: { flexDirection: 'row', alignItems: 'center', marginVertical: 10 },
   dividerLine: { flex: 1, height: 1, backgroundColor: '#EEE' },
   dividerText: { marginHorizontal: 10, color: '#999', fontSize: 14 },

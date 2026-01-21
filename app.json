@@ -45,4 +45,16 @@
       "reactCompiler": true
     }
   }
+  ,
+  "expo": {
+    "name": "RoomRent",
+    "slug": "room-rent",
+    "scheme": "roomrent", 
+    "android": {
+      "package": "com.yourname.roomrent"
+    }
+  }
+  
 }
+
+
