@@ -1,221 +1,277 @@
-import { 
-  View, Text, StyleSheet, FlatList, TouchableOpacity, Image, Alert 
-} from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { useState } from 'react';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
+import React, { useEffect, useState } from 'react';
+import {
+  ActivityIndicator,
+  Alert,
+  FlatList,
+  Image,
+  SafeAreaView,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View
+} from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { COLORS } from '../../constants/Colors';
+import { useAuth } from '../context/AuthContext';
+import { appointmentService } from '../services/appointmentService';
 
 interface Appointment {
   id: string;
+  roomId: string;
   roomTitle: string;
   roomImage: string;
-  date: string;
-  time: string;
-  status: 'pending' | 'confirmed' | 'cancelled' | 'completed';
+  status: 'pending' | 'waiting_deposit' | 'confirmed' | 'contracted' | 'cancelled' | 'completed';
+  type?: 'DEPOSIT' | 'VIEW';
+  startDate?: string;
+  endDate?: string;
+  depositAmount?: number;
+  tenantId: string;
+  hostId: string;
+  tenantInfo?: {
+    fullName: string;
+    phoneNumber: string;
+    idCard?: string;
+  };
 }
 
 export default function AppointmentsPage() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
+  const { user } = useAuth();
+  
   const [activeTab, setActiveTab] = useState<'current' | 'history'>('current');
+  const [appointments, setAppointments] = useState<Appointment[]>([]);
+  const [loading, setLoading] = useState(true);
 
-  // Giả lập dữ liệu có đầy đủ trạng thái
-  const [appointments, setAppointments] = useState<Appointment[]>([
-    {
-      id: '1',
-      roomTitle: 'Phòng trọ đẹp gần ĐH Bách Khoa',
-      roomImage: 'https://images.unsplash.com/photo-1522708323590-d24dbb6b0267',
-      date: '20/12/2025',
-      time: '14:00',
-      status: 'pending',
-    },
-    {
-      id: '2',
-      roomTitle: 'Căn hộ cao cấp Quận 7',
-      roomImage: 'https://images.unsplash.com/photo-1513584684374-8bab748fbf90',
-      date: '18/12/2025',
-      time: '10:00',
-      status: 'confirmed',
-    },
-    {
-      id: '3',
-      roomTitle: 'Nhà nguyên căn Thủ Đức',
-      roomImage: 'https://images.unsplash.com/photo-1493809842364-78817add7ffb',
-      date: '10/12/2025',
-      time: '09:00',
-      status: 'completed',
-    },
-  ]);
+  useEffect(() => {
+    if (!user?.id) return;
+    
+    // Sử dụng onSnapshot để cập nhật UI ngay lập tức khi bấm nút
+    const unsubscribe = appointmentService.getMyAppointments(user.id, (data: any[]) => {
+      setAppointments(data);
+      setLoading(false);
+    });
+    
+    return () => unsubscribe();
+  }, [user?.id]);
 
-  // Lọc dữ liệu theo Tab
-  const filteredData = appointments.filter(item => 
-    activeTab === 'current' 
-      ? ['pending', 'confirmed'].includes(item.status)
-      : ['cancelled', 'completed'].includes(item.status)
-  );
-
-  const getStatusStyle = (status: Appointment['status']) => {
-    switch (status) {
-      case 'pending': return { bg: '#FFF3CD', text: '#856404', label: 'Chờ duyệt' };
-      case 'confirmed': return { bg: '#D4EDDA', text: '#155724', label: 'Sắp xem' };
-      case 'cancelled': return { bg: '#F8D7DA', text: '#721C24', label: 'Đã hủy' };
-      case 'completed': return { bg: '#E2E3E5', text: '#383D41', label: 'Đã xong' };
-    }
-  };
-
-  const handleCancel = (id: string) => {
-    Alert.alert("Hủy lịch hẹn", "Bạn có chắc chắn muốn hủy lịch xem phòng này không?", [
-      { text: "Không", style: "cancel" },
+  const handleUpdateStatus = async (id: string, newStatus: Appointment['status'], message: string) => {
+    Alert.alert("Xác nhận", message, [
+      { text: "Hủy", style: "cancel" },
       { 
-        text: "Hủy lịch", 
-        style: "destructive", 
-        onPress: () => {
-          setAppointments(prev => prev.map(item => 
-            item.id === id ? { ...item, status: 'cancelled' } : item
-          ));
+        text: "Đồng ý", 
+        onPress: async () => {
+          try {
+            const result = await appointmentService.updateAppointmentStatus(id, newStatus);
+            if (!result.success) Alert.alert("Lỗi", result.error);
+            // Không cần reload data vì onSnapshot sẽ tự lo
+          } catch (e) {
+            console.error(e);
+          }
         }
       }
     ]);
   };
 
+  const getStatusUI = (status: Appointment['status']) => {
+    switch (status) {
+      case 'pending': return { bg: '#FFF3CD', text: '#856404', label: 'Đang chờ duyệt' };
+      case 'waiting_deposit': return { bg: '#E0F2FE', text: '#0369A1', label: 'Chờ đặt cọc' };
+      case 'confirmed': return { bg: '#FEF3C7', text: '#92400E', label: 'Chờ xác nhận tiền' };
+      case 'contracted': return { bg: '#D1FAE5', text: '#065F46', label: 'Đã ký hợp đồng' };
+      case 'cancelled': return { bg: '#FEE2E2', text: '#B91C1C', label: 'Đã hủy' };
+      default: return { bg: '#F1F5F9', text: '#475569', label: 'Hoàn tất' };
+    }
+  };
+
   const renderItem = ({ item }: { item: Appointment }) => {
-    const statusStyle = getStatusStyle(item.status);
+    const statusUI = getStatusUI(item.status);
+    const isHost = item.hostId === user?.id;
 
     return (
-      <View style={styles.card}>
-        <View style={styles.row}>
+      <TouchableOpacity 
+        style={styles.card} 
+        activeOpacity={0.9}
+        onPress={() => router.push({ pathname: "/appointment-detail/[id]", params: { id: item.id } } as any)}
+      >
+        <View style={styles.cardHeader}>
+          <View style={styles.typeBadge}>
+            <Ionicons name={item.type === 'VIEW' ? "eye" : "bookmark"} size={12} color={COLORS.primary} />
+            <Text style={styles.typeText}>{item.type === 'VIEW' ? 'XEM PHÒNG' : 'ĐẶT CỌC'}</Text>
+          </View>
+          <View style={[styles.statusBadge, { backgroundColor: statusUI.bg }]}>
+            <Text style={[styles.statusLabel, { color: statusUI.text }]}>{statusUI.label}</Text>
+          </View>
+        </View>
+
+        <View style={styles.mainInfo}>
           <Image source={{ uri: item.roomImage }} style={styles.roomImage} />
-          
-          <View style={styles.info}>
-            <View style={[styles.statusBadge, { backgroundColor: statusStyle.bg }]}>
-              <Text style={[styles.statusLabel, { color: statusStyle.text }]}>
-                {statusStyle.label}
-              </Text>
-            </View>
+          <View style={styles.textContainer}>
             <Text style={styles.roomTitle} numberOfLines={1}>{item.roomTitle}</Text>
-            
-            <View style={styles.dateTimeContainer}>
-              <View style={styles.dateTimeItem}>
-                <Ionicons name="calendar-outline" size={14} color="#666" />
-                <Text style={styles.dateTimeText}>{item.date}</Text>
-              </View>
-              <View style={styles.dateTimeItem}>
-                <Ionicons name="time-outline" size={14} color="#666" />
-                <Text style={styles.dateTimeText}>{item.time}</Text>
-              </View>
+            <Text style={styles.infoText}>
+              <Ionicons name="person-outline" size={12} /> {isHost ? `Khách: ${item.tenantInfo?.fullName}` : "Hồ sơ của bạn"}
+            </Text>
+            <Text style={styles.infoText}>
+              <Ionicons name="calendar-outline" size={12} /> {item.startDate} - {item.endDate}
+            </Text>
+            <View style={styles.moneyRow}>
+               <Text style={styles.moneyLabel}>Tiền cọc: <Text style={styles.boldAmount}>{(item.depositAmount || 0).toLocaleString()}đ</Text></Text>
             </View>
           </View>
         </View>
 
         <View style={styles.cardFooter}>
-          <TouchableOpacity 
-            style={styles.detailBtn}
-            onPress={() => router.push(`/room-detail/${item.id}`)}
-          >
-            <Text style={styles.detailBtnText}>Xem chi tiết phòng</Text>
+          <TouchableOpacity onPress={(e) => {
+              e.stopPropagation();
+              router.push(`/room-detail/${item.roomId}` as any);
+          }}>
+            <Text style={styles.secondaryBtnText}>Xem phòng</Text>
           </TouchableOpacity>
 
-          {item.status === 'pending' && (
-            <TouchableOpacity 
-              style={styles.cancelBtn} 
-              onPress={() => handleCancel(item.id)}
-            >
-              <Text style={styles.cancelText}>Hủy lịch</Text>
-            </TouchableOpacity>
-          )}
+          <View style={styles.actionGroup}>
+            {/* NHÓM NÚT DÀNH CHO CHỦ NHÀ */}
+            {isHost && (
+              <>
+                {item.status === 'pending' && (
+                  <View style={{ flexDirection: 'row', gap: 8 }}>
+                    <TouchableOpacity 
+                      style={[styles.btn, styles.btnApprove]} 
+                      onPress={(e) => {
+                        e.stopPropagation();
+                        handleUpdateStatus(item.id, 'waiting_deposit', "Duyệt hồ sơ và yêu cầu khách đặt cọc?");
+                      }}>
+                      <Text style={styles.btnTextWhite}>Duyệt</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity 
+                      style={[styles.btn, styles.btnCancel]} 
+                      onPress={(e) => {
+                        e.stopPropagation();
+                        handleUpdateStatus(item.id, 'cancelled', "Từ chối yêu cầu thuê phòng này?");
+                      }}>
+                      <Text style={styles.btnTextRed}>Từ chối</Text>
+                    </TouchableOpacity>
+                  </View>
+                )}
+                {item.status === 'confirmed' && (
+                  <TouchableOpacity 
+                    style={[styles.btn, styles.btnApprove]} 
+                    onPress={(e) => {
+                      e.stopPropagation();
+                      handleUpdateStatus(item.id, 'contracted', "Xác nhận đã nhận tiền cọc?");
+                    }}>
+                    <Text style={styles.btnTextWhite}>Xác nhận tiền</Text>
+                  </TouchableOpacity>
+                )}
+              </>
+            )}
+
+            {/* NHÓM NÚT DÀNH CHO KHÁCH THUÊ */}
+            {!isHost && (
+              <>
+                {item.status === 'waiting_deposit' && (
+                  <TouchableOpacity 
+                    style={[styles.btn, styles.btnPay]} 
+                    onPress={(e) => {
+                      e.stopPropagation();
+                      router.push({ pathname: "/contract-detail/[id]", params: { id: item.id } } as any);
+                    }}>
+                    <Text style={styles.btnTextWhite}>Thanh toán ngay</Text>
+                  </TouchableOpacity>
+                )}
+                {item.status === 'pending' && (
+                  <Text style={styles.waitingText}>Chờ chủ nhà phản hồi...</Text>
+                )}
+              </>
+            )}
+
+            {/* NÚT XEM HỢP ĐỒNG KHI ĐÃ XONG */}
+            {item.status === 'contracted' && (
+              <TouchableOpacity 
+                style={[styles.btn, styles.btnContract]} 
+                onPress={(e) => {
+                  e.stopPropagation();
+                  router.push({ pathname: "/contract-view/[id]", params: { id: item.id } } as any);
+                }}>
+                <Text style={styles.btnTextWhite}>Xem hợp đồng</Text>
+              </TouchableOpacity>
+            )}
+          </View>
         </View>
-      </View>
+      </TouchableOpacity>
     );
   };
 
+  const filteredData = appointments.filter(item => {
+    const isOngoing = ['pending', 'waiting_deposit', 'confirmed'].includes(item.status);
+    return activeTab === 'current' ? isOngoing : !isOngoing;
+  });
+
   return (
-    <View style={[styles.container, { paddingTop: insets.top }]}>
-      <Text style={styles.headerTitle}>Lịch hẹn của tôi</Text>
+    <SafeAreaView style={[styles.container, { paddingTop: insets.top }]}>
+      <View style={styles.header}>
+        <Text style={styles.headerTitle}>Quản lý thuê phòng</Text>
+      </View>
       
-      {/* TABS PHÂN LOẠI */}
       <View style={styles.tabContainer}>
-        <TouchableOpacity 
-          style={[styles.tab, activeTab === 'current' && styles.activeTab]} 
-          onPress={() => setActiveTab('current')}
-        >
-          <Text style={[styles.tabText, activeTab === 'current' && styles.activeTabText]}>Sắp tới</Text>
+        <TouchableOpacity style={[styles.tab, activeTab === 'current' && styles.activeTab]} onPress={() => setActiveTab('current')}>
+          <Text style={[styles.tabText, activeTab === 'current' && styles.activeTabText]}>Đang xử lý</Text>
         </TouchableOpacity>
-        <TouchableOpacity 
-          style={[styles.tab, activeTab === 'history' && styles.activeTab]} 
-          onPress={() => setActiveTab('history')}
-        >
+        <TouchableOpacity style={[styles.tab, activeTab === 'history' && styles.activeTab]} onPress={() => setActiveTab('history')}>
           <Text style={[styles.tabText, activeTab === 'history' && styles.activeTabText]}>Lịch sử</Text>
         </TouchableOpacity>
       </View>
 
-      <FlatList
-        data={filteredData}
-        keyExtractor={item => item.id}
-        renderItem={renderItem}
-        contentContainerStyle={{ padding: 16, paddingBottom: 100 }}
-        ListEmptyComponent={
-          <View style={styles.empty}>
-            <Ionicons name="calendar-outline" size={80} color="#EEE" />
-            <Text style={styles.emptyTitle}>Trống</Text>
-            <Text style={styles.emptySub}>Bạn không có lịch hẹn nào ở mục này</Text>
-          </View>
-        }
-      />
-    </View>
+      {loading ? (
+        <ActivityIndicator size="large" color={COLORS.primary} style={{ marginTop: 50 }} />
+      ) : (
+        <FlatList
+          data={filteredData}
+          keyExtractor={item => item.id}
+          renderItem={renderItem}
+          contentContainerStyle={styles.listContent}
+          ListEmptyComponent={<Text style={styles.emptyText}>Không có dữ liệu</Text>}
+        />
+      )}
+    </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#F8F9FA' },
-  headerTitle: { fontSize: 24, fontWeight: 'bold', paddingHorizontal: 16, paddingVertical: 10 },
-  
-  // Tab Styles
-  tabContainer: { flexDirection: 'row', paddingHorizontal: 16, marginBottom: 10, gap: 15 },
-  tab: { paddingVertical: 8, paddingHorizontal: 16, borderRadius: 20, backgroundColor: '#EEE' },
+  container: { flex: 1, backgroundColor: '#F8FAFC' },
+  header: { padding: 20, backgroundColor: '#FFF' },
+  headerTitle: { fontSize: 22, fontWeight: 'bold' },
+  tabContainer: { flexDirection: 'row', padding: 10, backgroundColor: '#FFF', gap: 10 },
+  tab: { flex: 1, padding: 12, alignItems: 'center', borderRadius: 10, backgroundColor: '#F1F5F9' },
   activeTab: { backgroundColor: COLORS.primary },
-  tabText: { fontWeight: '600', color: '#666' },
-  activeTabText: { color: 'white' },
-
-  // Card Styles
-  card: { 
-    backgroundColor: 'white', 
-    borderRadius: 16, 
-    padding: 12, 
-    marginBottom: 16, 
-    // Shadow cho iOS
-    shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.05, shadowRadius: 8,
-    // Shadow cho Android
-    elevation: 3 
-  },
-  row: { flexDirection: 'row' },
-  roomImage: { width: 90, height: 90, borderRadius: 12 },
-  info: { flex: 1, marginLeft: 15, justifyContent: 'center' },
-  statusBadge: { alignSelf: 'flex-start', paddingHorizontal: 8, paddingVertical: 4, borderRadius: 6, marginBottom: 6 },
-  statusLabel: { fontSize: 11, fontWeight: '800', textTransform: 'uppercase' },
-  roomTitle: { fontSize: 16, fontWeight: 'bold', color: '#333', marginBottom: 8 },
-  dateTimeContainer: { flexDirection: 'row', gap: 12 },
-  dateTimeItem: { flexDirection: 'row', alignItems: 'center', gap: 4 },
-  dateTimeText: { fontSize: 13, color: '#666' },
-
-  // Footer Actions
-  cardFooter: { 
-    flexDirection: 'row', 
-    marginTop: 15, 
-    paddingTop: 12, 
-    borderTopWidth: 1, 
-    borderTopColor: '#F0F0F0',
-    justifyContent: 'space-between',
-    alignItems: 'center'
-  },
-  detailBtn: { paddingVertical: 5 },
-  detailBtnText: { color: COLORS.primary, fontWeight: '600', fontSize: 14 },
-  cancelBtn: { backgroundColor: '#FFF5F5', paddingHorizontal: 12, paddingVertical: 6, borderRadius: 8 },
-  cancelText: { color: '#FF4D4D', fontWeight: 'bold', fontSize: 13 },
-
-  // Empty State
-  empty: { flex: 1, marginTop: 100, justifyContent: 'center', alignItems: 'center', padding: 20 },
-  emptyTitle: { fontSize: 18, fontWeight: 'bold', marginTop: 16, color: '#CCC' },
-  emptySub: { fontSize: 14, color: '#999', textAlign: 'center', marginTop: 8 },
+  tabText: { fontWeight: '600', color: '#64748B' },
+  activeTabText: { color: '#FFF' },
+  listContent: { padding: 15 },
+  card: { backgroundColor: '#FFF', borderRadius: 15, padding: 15, marginBottom: 15, elevation: 3 },
+  cardHeader: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 12 },
+  typeBadge: { flexDirection: 'row', alignItems: 'center', gap: 5 },
+  typeText: { fontSize: 10, fontWeight: 'bold', color: COLORS.primary },
+  statusBadge: { paddingHorizontal: 8, paddingVertical: 4, borderRadius: 5 },
+  statusLabel: { fontSize: 11, fontWeight: 'bold' },
+  mainInfo: { flexDirection: 'row', gap: 12 },
+  roomImage: { width: 85, height: 85, borderRadius: 10 },
+  textContainer: { flex: 1 },
+  roomTitle: { fontSize: 16, fontWeight: 'bold', marginBottom: 4 },
+  infoText: { fontSize: 12, color: '#64748B', marginBottom: 2 },
+  moneyRow: { marginTop: 5 },
+  moneyLabel: { fontSize: 13, color: '#333' },
+  boldAmount: { fontWeight: 'bold', color: COLORS.primary },
+  cardFooter: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 15, borderTopWidth: 1, borderTopColor: '#F1F5F9', paddingTop: 10 },
+  secondaryBtnText: { color: '#64748B', fontWeight: '500' },
+  actionGroup: { flexDirection: 'row', gap: 8 },
+  btn: { paddingHorizontal: 14, paddingVertical: 7, borderRadius: 8 },
+  btnApprove: { backgroundColor: '#10B981' },
+  btnCancel: { borderWidth: 1, borderColor: '#EF4444' },
+  btnPay: { backgroundColor: COLORS.primary },
+  btnContract: { backgroundColor: '#059669' },
+  btnTextWhite: { color: '#FFF', fontWeight: 'bold', fontSize: 12 },
+  btnTextRed: { color: '#EF4444', fontWeight: 'bold', fontSize: 12 },
+  waitingText: { fontSize: 12, color: '#94A3B8', fontStyle: 'italic' },
+  emptyText: { textAlign: 'center', marginTop: 50, color: '#94A3B8' }
 });

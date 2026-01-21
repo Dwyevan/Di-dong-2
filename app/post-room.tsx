@@ -1,18 +1,28 @@
-import React, { useState } from 'react';
-import { 
-  View, Text, StyleSheet, ScrollView, TextInput, 
-  TouchableOpacity, SafeAreaView, Dimensions, KeyboardAvoidingView, 
-  Platform, Alert, ActivityIndicator 
-} from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import * as ImagePicker from 'expo-image-picker';
 import { useRouter } from 'expo-router';
+import React, { useState } from 'react';
+import {
+  ActivityIndicator,
+  Alert,
+  Dimensions,
+  Image,
+  KeyboardAvoidingView,
+  Platform,
+  SafeAreaView,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View
+} from 'react-native';
 
-// Kết nối các file cấu hình bạn đã tạo
-import { roomService } from './services/roomService';
 import { auth } from './lib/firebase';
+import { roomService } from './services/roomService';
 
 const { width } = Dimensions.get('window');
-const PRIMARY_COLOR = '#4F46E5'; 
+const PRIMARY_COLOR = '#4F46E5';
 
 export default function PostRoomPage() {
   const router = useRouter();
@@ -28,8 +38,10 @@ export default function PostRoomPage() {
     area: '',
   });
 
-  // State quản lý tiện ích
   const [amenities, setAmenities] = useState<string[]>([]);
+  const [images, setImages] = useState<string[]>([]);
+  const [imageUrlInput, setImageUrlInput] = useState(''); // State cho ô dán link ảnh
+
   const allAmenities = [
     { id: '1', name: 'WiFi', icon: 'wifi' },
     { id: '2', name: 'Điều hòa', icon: 'snow' },
@@ -41,18 +53,56 @@ export default function PostRoomPage() {
     { id: '8', name: 'Tủ lạnh', icon: 'ice-cream' },
   ];
 
+  const pickImage = async () => {
+    const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (status !== 'granted') {
+      Alert.alert('Thông báo', 'Chúng tôi cần quyền truy cập thư viện ảnh để đăng tin!');
+      return;
+    }
+
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      allowsMultipleSelection: true,
+      selectionLimit: 5,
+      quality: 0.7,
+    });
+
+    if (!result.canceled) {
+      const selectedUris = result.assets.map(asset => asset.uri);
+      setImages(prev => [...prev, ...selectedUris]);
+    }
+  };
+
+  // HÀM THÊM LINK ẢNH TRỰC TIẾP
+  const addImageLink = () => {
+    if (!imageUrlInput.trim()) return;
+    if (!imageUrlInput.startsWith('http')) {
+      Alert.alert("Lỗi", "Vui lòng nhập link ảnh hợp lệ (bắt đầu bằng http)");
+      return;
+    }
+    setImages(prev => [...prev, imageUrlInput.trim()]);
+    setImageUrlInput(''); // Xóa nội dung ô nhập sau khi thêm
+  };
+
+  const removeImage = (index: number) => {
+    setImages(prev => prev.filter((_, i) => i !== index));
+  };
+
   const toggleAmenity = (name: string) => {
-    setAmenities(prev => 
+    setAmenities(prev =>
       prev.includes(name) ? prev.filter(a => a !== name) : [...prev, name]
     );
   };
 
-  // HÀM XỬ LÝ GỬI DỮ LIỆU LÊN FIREBASE
   const handleSubmit = async () => {
-    // Kiểm tra dữ liệu bắt buộc
     if (!form.title || !form.price || !form.location) {
       Alert.alert("Thông báo", "Vui lòng nhập đầy đủ Tiêu đề, Giá và Địa chỉ ở Bước 1");
       setStep(1);
+      return;
+    }
+
+    if (images.length === 0) {
+      Alert.alert("Thông báo", "Vui lòng chọn hoặc dán ít nhất 1 hình ảnh");
       return;
     }
 
@@ -67,12 +117,13 @@ export default function PostRoomPage() {
         amenities: amenities,
         userId: auth.currentUser?.uid || 'guest_user',
         userEmail: auth.currentUser?.email || 'no-email',
-        imageUrl: "https://picsum.photos/seed/room/800/600", // Ảnh mặc định tạm thời
+        imageUrl: images[0], 
+        allImages: images,
         status: 'active',
+        createdAt: new Date(),
       };
 
       const result = await roomService.createRoom(roomData);
-
       if (result.success) {
         Alert.alert("Thành công 🎉", "Phòng của bạn đã được đăng lên hệ thống!", [
           { text: "Xem danh sách", onPress: () => router.replace('/(tabs)/explore' as any) }
@@ -90,12 +141,12 @@ export default function PostRoomPage() {
   const ProgressBar = () => (
     <View style={styles.progressContainer}>
       {[1, 2, 3, 4].map((i) => (
-        <View 
-          key={i} 
+        <View
+          key={i}
           style={[
-            styles.progressStep, 
+            styles.progressStep,
             { backgroundColor: i <= step ? PRIMARY_COLOR : '#E2E8F0' }
-          ]} 
+          ]}
         />
       ))}
     </View>
@@ -103,11 +154,10 @@ export default function PostRoomPage() {
 
   return (
     <SafeAreaView style={styles.container}>
-      <KeyboardAvoidingView 
-        behavior={Platform.OS === 'ios' ? 'padding' : 'height'} 
+      <KeyboardAvoidingView
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
         style={{ flex: 1 }}
       >
-        {/* Header */}
         <View style={styles.header}>
           <TouchableOpacity onPress={() => router.back()} style={styles.backBtn}>
             <Ionicons name="close" size={24} color="#1E293B" />
@@ -127,34 +177,34 @@ export default function PostRoomPage() {
               
               <View style={styles.inputGroup}>
                 <Text style={styles.label}>Tiêu đề bài đăng</Text>
-                <TextInput 
-                  style={styles.input} 
-                  placeholder="Ví dụ: Phòng trọ cao cấp trung tâm Quận 1" 
-                  value={form.title} 
-                  onChangeText={t => setForm({...form, title: t})} 
+                <TextInput
+                  style={styles.input}
+                  placeholder="Ví dụ: Phòng trọ cao cấp trung tâm Quận 1"
+                  value={form.title}
+                  onChangeText={t => setForm({ ...form, title: t })}
                 />
               </View>
 
               <View style={styles.inputGroup}>
                 <Text style={styles.label}>Giá cho thuê (VNĐ/tháng)</Text>
-                <TextInput 
-                  style={styles.input} 
-                  placeholder="Ví dụ: 5000000" 
-                  keyboardType="numeric" 
-                  value={form.price} 
-                  onChangeText={t => setForm({...form, price: t})} 
+                <TextInput
+                  style={styles.input}
+                  placeholder="Ví dụ: 5000000"
+                  keyboardType="numeric"
+                  value={form.price}
+                  onChangeText={t => setForm({ ...form, price: t })}
                 />
               </View>
 
               <View style={styles.inputRow}>
                 <View style={[styles.inputGroup, { flex: 1 }]}>
                   <Text style={styles.label}>Diện tích (m²)</Text>
-                  <TextInput 
-                    style={styles.input} 
-                    placeholder="25" 
+                  <TextInput
+                    style={styles.input}
+                    placeholder="25"
                     keyboardType="numeric"
                     value={form.area}
-                    onChangeText={t => setForm({...form, area: t})}
+                    onChangeText={t => setForm({ ...form, area: t })}
                   />
                 </View>
                 <View style={[styles.inputGroup, { flex: 1 }]}>
@@ -167,11 +217,11 @@ export default function PostRoomPage() {
                 <Text style={styles.label}>Địa chỉ</Text>
                 <View style={styles.inputWithIcon}>
                   <Ionicons name="location-outline" size={20} color={PRIMARY_COLOR} />
-                  <TextInput 
-                    style={styles.innerInput} 
-                    placeholder="Số nhà, tên đường..." 
+                  <TextInput
+                    style={styles.innerInput}
+                    placeholder="Số nhà, tên đường..."
                     value={form.location}
-                    onChangeText={t => setForm({...form, location: t})}
+                    onChangeText={t => setForm({ ...form, location: t })}
                   />
                 </View>
               </View>
@@ -189,10 +239,10 @@ export default function PostRoomPage() {
                     style={[styles.amenityCard, amenities.includes(item.name) && styles.amenityActive]}
                     onPress={() => toggleAmenity(item.name)}
                   >
-                    <Ionicons 
-                      name={item.icon as any} 
-                      size={24} 
-                      color={amenities.includes(item.name) ? 'white' : PRIMARY_COLOR} 
+                    <Ionicons
+                      name={item.icon as any}
+                      size={24}
+                      color={amenities.includes(item.name) ? 'white' : PRIMARY_COLOR}
                     />
                     <Text style={[styles.amenityLabel, amenities.includes(item.name) && styles.amenityTextActive]}>
                       {item.name}
@@ -207,13 +257,13 @@ export default function PostRoomPage() {
             <View style={styles.stepView}>
               <Text style={styles.sectionTitle}>Mô tả chi tiết 📝</Text>
               <Text style={styles.sectionSub}>Ghi chú về quy định, giờ giấc...</Text>
-              <TextInput 
-                style={[styles.input, styles.textArea]} 
-                placeholder="Mô tả chi tiết..." 
-                multiline 
+              <TextInput
+                style={[styles.input, styles.textArea]}
+                placeholder="Mô tả chi tiết..."
+                multiline
                 numberOfLines={6}
                 value={form.description}
-                onChangeText={t => setForm({...form, description: t})}
+                onChangeText={t => setForm({ ...form, description: t })}
               />
             </View>
           )}
@@ -221,29 +271,64 @@ export default function PostRoomPage() {
           {step === 4 && (
             <View style={styles.stepView}>
               <Text style={styles.sectionTitle}>Hình ảnh 📸</Text>
-              <Text style={styles.sectionSub}>Đăng tối thiểu 3 ảnh để tăng độ uy tín.</Text>
-              <TouchableOpacity style={styles.uploadBox} activeOpacity={0.7}>
-                <Ionicons name="cloud-upload-outline" size={48} color={PRIMARY_COLOR} />
-                <Text style={styles.uploadTitle}>Chọn ảnh từ thư viện</Text>
-                <Text style={{color: '#94A3B8', marginTop: 5}}>Chức năng upload đang được cập nhật...</Text>
+              <Text style={styles.sectionSub}>Chọn từ máy hoặc dán link ảnh trực tiếp.</Text>
+              
+              {/* Ô DÁN LINK ẢNH */}
+              <View style={styles.linkInputGroup}>
+                <TextInput
+                  style={[styles.input, { flex: 1, marginBottom: 0 }]}
+                  placeholder="Dán link ảnh http://..."
+                  value={imageUrlInput}
+                  onChangeText={setImageUrlInput}
+                  autoCapitalize="none"
+                />
+                <TouchableOpacity style={styles.addLinkBtn} onPress={addImageLink}>
+                  <Text style={styles.addLinkBtnText}>Thêm</Text>
+                </TouchableOpacity>
+              </View>
+
+              {/* Danh sách ảnh hiển thị */}
+              <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginVertical: 20 }}>
+                {images.map((uri, index) => (
+                  <View key={index} style={styles.imageWrapper}>
+                    <Image source={{ uri }} style={styles.imagePreview} />
+                    <TouchableOpacity 
+                        style={styles.deleteImageBtn} 
+                        onPress={() => removeImage(index)}
+                    >
+                      <Ionicons name="close-circle" size={24} color="#EF4444" />
+                    </TouchableOpacity>
+                  </View>
+                ))}
+              </ScrollView>
+
+              <TouchableOpacity 
+                style={styles.uploadBox} 
+                activeOpacity={0.7}
+                onPress={pickImage}
+              >
+                <Ionicons name="cloud-upload-outline" size={40} color={PRIMARY_COLOR} />
+                <Text style={styles.uploadTitle}>Chọn từ thư viện máy</Text>
+                <Text style={{ color: '#94A3B8', marginTop: 5 }}>
+                    Đã có {images.length} ảnh trong danh sách
+                </Text>
               </TouchableOpacity>
             </View>
           )}
         </ScrollView>
 
-        {/* Footer */}
         <View style={styles.footer}>
           {step > 1 && (
-            <TouchableOpacity 
-              style={styles.backActionBtn} 
+            <TouchableOpacity
+              style={styles.backActionBtn}
               onPress={() => setStep(step - 1)}
               disabled={loading}
             >
               <Text style={styles.backActionText}>Quay lại</Text>
             </TouchableOpacity>
           )}
-          <TouchableOpacity 
-            style={[styles.nextActionBtn, step === 1 && { width: '100%' }]} 
+          <TouchableOpacity
+            style={[styles.nextActionBtn, step === 1 && { width: '100%' }]}
             onPress={step === 4 ? handleSubmit : () => setStep(step + 1)}
             disabled={loading}
           >
@@ -317,8 +402,14 @@ const styles = StyleSheet.create({
   amenityActive: { backgroundColor: PRIMARY_COLOR, borderColor: PRIMARY_COLOR },
   amenityLabel: { fontSize: 12, fontWeight: '600', color: '#64748B', marginTop: 8 },
   amenityTextActive: { color: 'white' },
+  
+  // Styles mới cho link ảnh
+  linkInputGroup: { flexDirection: 'row', gap: 10, alignItems: 'center' },
+  addLinkBtn: { backgroundColor: PRIMARY_COLOR, paddingHorizontal: 15, height: 55, borderRadius: 12, justifyContent: 'center' },
+  addLinkBtnText: { color: 'white', fontWeight: 'bold' },
+
   uploadBox: {
-    height: 200,
+    height: 150,
     backgroundColor: '#F5F7FF',
     borderRadius: 20,
     borderWidth: 2,
@@ -327,7 +418,11 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
   },
-  uploadTitle: { fontSize: 16, fontWeight: '700', color: PRIMARY_COLOR, marginTop: 15 },
+  uploadTitle: { fontSize: 16, fontWeight: '700', color: PRIMARY_COLOR, marginTop: 10 },
+  imageWrapper: { marginRight: 12, position: 'relative' },
+  imagePreview: { width: 120, height: 120, borderRadius: 12 },
+  deleteImageBtn: { position: 'absolute', top: -10, right: -10, backgroundColor: 'white', borderRadius: 12 },
+  
   footer: {
     padding: 24,
     flexDirection: 'row',
